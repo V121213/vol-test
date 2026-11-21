@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Value of Life — проверка связи</title>
+<style>
+  /* Одна страница без внешних шрифтов и скриптов: всё, что она грузит, — это сами проверки. */
+  :root{
+    --bg:#f6f4ef; --card:#ffffff; --ink:#1f2328; --muted:#636a74; --line:#ddd8cd;
+    --accent:#3a6e8f; --ok:#1e7a46; --ok-bg:#e2f3e8; --bad:#b3261e; --bad-bg:#fbe5e3;
+    --wait:#8a6a00; --wait-bg:#fbf1d6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#15181c; --card:#1f2329; --ink:#e8eaed; --muted:#a3aab4; --line:#323840;
+      --accent:#86b6d6; --ok:#6fd39a; --ok-bg:#16301f; --bad:#f2938b; --bad-bg:#3a1916;
+      --wait:#f0c860; --wait-bg:#3a2e10;
+      color-scheme: dark;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:560px;margin:0 auto;padding:20px 16px 40px}
+  h1{font-size:22px;margin:0 0 4px}
+  p{margin:.3em 0}
+  .muted{color:var(--muted);font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px}
+  .label{font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chips button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:7px 12px;font:inherit;font-size:15px;cursor:pointer}
+  .chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .go{width:100%;margin-top:14px;padding:13px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:inherit;font-weight:700;font-size:17px;cursor:pointer}
+  .go:disabled{opacity:.5;cursor:default}
+  ol{list-style:none;margin:0;padding:0}
+  li{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line)}
+  li:last-child{border-bottom:0}
+  .st{flex:none;min-width:64px;text-align:center;border-radius:8px;padding:2px 6px;font-weight:700;font-size:14px;background:var(--bg);color:var(--muted)}
+  .st.ok{background:var(--ok-bg);color:var(--ok)}
+  .st.bad{background:var(--bad-bg);color:var(--bad)}
+  .st.wait{background:var(--wait-bg);color:var(--wait)}
+  .t{flex:1;min-width:0}
+  .t b{display:block}
+  .t span{display:block;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+  textarea{width:100%;min-height:150px;margin-top:8px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+  .copy{margin-top:8px;padding:10px 14px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Проверка связи · Value of Life</h1>
+  <p class="muted">Страница проверяет, открываются ли у вас серверы нашего приложения. Ничего не устанавливается, личные данные не собираются. <b>Перед проверкой выключите VPN.</b></p>
+
+  <div class="card">
+    <div class="label">1. Ваш интернет</div>
+    <div class="chips" id="opChips" role="group" aria-label="Оператор">
+      <button type="button">МТС</button><button type="button">Билайн</button><button type="button">МегаФон</button>
+      <button type="button">Tele2</button><button type="button">Yota</button><button type="button">Ростелеком</button>
+      <button type="button">Wi-Fi (другой)</button>
+    </div>
+    <div class="label" style="margin-top:12px">2. Где открыта страница</div>
+    <div class="chips" id="whereChips" role="group" aria-label="Где открыто">
+      <button type="button">Браузер телефона</button><button type="button">Внутри Telegram</button><button type="button">Компьютер</button>
+    </div>
+    <button class="go" id="go" type="button" disabled>Начать проверку</button>
+    <p class="muted" id="hint">Сначала выберите оператора и где открыта страница.</p>
+  </div>
+
+  <div class="card">
+    <div class="label">3. Результат</div>
+    <ol id="list"></ol>
+  </div>
+
+  <div class="card" id="outCard" hidden>
+    <div class="label">4. Отправьте результат</div>
+    <p class="muted">Нажмите «Скопировать» и пришлите текст (и скриншот экрана) тому, кто дал вам ссылку.</p>
+    <textarea id="out" readonly aria-label="Текст результата"></textarea>
+    <button class="copy" id="copy" type="button">Скопировать результат</button>
+  </div>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  // ==== НАСТРОЙКА: Project ID проекта Supabase valueoflife-bot (Ireland, eu-west-1). Это публичное значение, не секрет. ====
+  var SUPABASE_REF = "quqqpitiimevmlsuiobp";
+  // Публичный тестовый файл ~200 КБ в Supabase Storage (bucket "test" должен быть public).
+  var SUPABASE_BIG_FILE = "test/test-200kb.jpg";
+  var TIMEOUT_MS = 20000;
+
+  var refReady = /^[a-z0-9]{20}$/.test(SUPABASE_REF);
+  var sb = "https://" + SUPABASE_REF + ".supabase.co";
+
+  var CHECKS = [
+    { id:1, name:"Контроль: Яндекс", note:"Проверяем, что интернет вообще работает",
+      run:function(){ return reach("https://ya.ru/favicon.ico"); } },
+    { id:2, name:"Сервер приложения (Supabase), короткий запрос", note:"Вход в приложение и данные",
+      run:function(){ return refReady ? reach(sb + "/auth/v1/health") : skip("Project ID ещё не указан"); } },
+    { id:3, name:"Сервер приложения (Supabase), файл ~200 КБ", note:"Большие ответы иногда «застревают»",
+      run:function(){ return refReady ? big(sb + "/storage/v1/object/public/" + SUPABASE_BIG_FILE, 150000, "тестовый файл ещё не загружен") : skip("Project ID ещё не указан"); } },
+    { id:4, name:"Сайт valueoflife.online, файл ~1 МБ", note:"Основной скрипт сайта",
+      run:siteJs },
+    { id:5, name:"Telegram Mini App (telegram.org)", note:"Скрипт, без которого мини-приложение не запустится",
+      run:function(){ return reach("https://telegram.org/js/telegram-web-app.js"); } }
+  ];
+
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { op:"", where:"", results:[] };
+
+  function bust(u){ return u + (u.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now(); }
+  function timed(p){
+    var t0 = performance.now();
+    return p.then(function(r){ r.ms = Math.round(performance.now() - t0); return r; },
+                  function(e){ return { ok:false, ms:Math.round(performance.now() - t0), info: e && e.name === "AbortError" ? "нет ответа за 20 сек" : "соединение не установлено" }; });
+  }
+  function withTimeout(fn){
+    var c = new AbortController(); var tm = setTimeout(function(){ c.abort(); }, TIMEOUT_MS);
+    return fn(c.signal).finally(function(){ clearTimeout(tm); });
+  }
+  // Сервер ответил хоть что-то (любой HTTP-код) = до него можно достучаться.
+  function reach(url){
+    return timed(withTimeout(function(signal){
+      return fetch(bust(url), { mode:"no-cors", cache:"no-store", signal:signal }).then(function(){ return { ok:true, info:"сервер ответил" }; });
+    }));
+  }
+  // Скачиваем файл целиком и проверяем размер.
+  function big(url, minBytes, missingText){
+    return timed(withTimeout(function(signal){
+      return fetch(bust(url), { cache:"no-store", signal:signal }).then(function(r){
+        if (r.status === 400 || r.status === 404) return { ok:null, info:"сервер ответил, но " + missingText };
+        if (!r.ok) return { ok:false, info:"ответ сервера " + r.status };
+        return r.arrayBuffer().then(function(b){
+          var kb = Math.round(b.byteLength / 1024);
+          return b.byteLength >= minBytes ? { ok:true, info:"скачано " + kb + " КБ" } : { ok:false, info:"скачано только " + kb + " КБ" };
+        });
+      });
+    }));
+  }
+  // Имя основного скрипта сайта меняется при обновлении сайта, поэтому берём его со страницы.
+  function siteJs(){
+    return timed(withTimeout(function(signal){
+      return fetch(bust("https://valueoflife.online/"), { cache:"no-store", signal:signal }).then(function(r){ return r.text(); }).then(function(html){
+        var m = html.match(/\/static\/js\/main\.[a-z0-9]+\.js/);
+        if (!m) return { ok:false, info:"главная страница открылась, но скрипт не найден" };
+        return fetch(bust("https://valueoflife.online" + m[0]), { cache:"no-store", signal:signal }).then(function(r){
+          if (!r.ok) return { ok:false, info:"ответ сервера " + r.status };
+          return r.arrayBuffer().then(function(b){
+            var kb = Math.round(b.byteLength / 1024);
+            return b.byteLength >= 500000 ? { ok:true, info:"скачано " + kb + " КБ" } : { ok:false, info:"скачано только " + kb + " КБ" };
+          });
+        });
+      });
+    }));
+  }
+  function skip(text){ return Promise.resolve({ ok:null, ms:0, info:text }); }
+
+  function renderList(){
+    var ol = $("list"); ol.textContent = "";
+    CHECKS.forEach(function(c, i){
+      var r = state.results[i];
+      var li = document.createElement("li");
+      var st = document.createElement("span");
+      st.className = "st" + (r ? (r.ok === true ? " ok" : r.ok === false ? " bad" : " wait") : "");
+      st.textContent = !r ? (state.running === i ? "…" : "—") : r.ok === true ? "✅ " + r.ms : r.ok === false ? "❌" : "⚠️";
+      var t = document.createElement("div"); t.className = "t";
+      var b = document.createElement("b"); b.textContent = c.id + ". " + c.name;
+      var s = document.createElement("span"); s.textContent = r ? (r.info + (r.ok !== null && r.ms ? " · " + r.ms + " мс" : "")) : c.note;
+      t.appendChild(b); t.appendChild(s); li.appendChild(st); li.appendChild(t); ol.appendChild(li);
+    });
+  }
+
+  function pick(groupId, key){
+    $(groupId).addEventListener("click", function(e){
+      var btn = e.target.closest("button"); if (!btn) return;
+      Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){ x.setAttribute("aria-pressed", x === btn ? "true" : "false"); });
+      state[key] = btn.textContent;
+      var ready = state.op && state.where;
+      $("go").disabled = !ready;
+      $("hint").textContent = ready ? "Проверка займёт до 1 минуты." : "Сначала выберите оператора и где открыта страница.";
+    });
+  }
+
+  function report(){
+    var lines = ["Value of Life · проверка связи",
+      "Оператор: " + state.op + " | Где: " + state.where,
+      "Время: " + new Date().toISOString().replace("T"," ").slice(0,16) + " UTC"];
+    CHECKS.forEach(function(c, i){
+      var r = state.results[i];
+      lines.push(c.id + ". " + (r.ok === true ? "OK" : r.ok === false ? "ОШИБКА" : "—") + " · " + c.name + " · " + r.info + (r.ms ? " · " + r.ms + " мс" : ""));
+    });
+    lines.push("Браузер: " + navigator.userAgent);
+    return lines.join("\n");
+  }
+
+  $("go").addEventListener("click", function(){
+    $("go").disabled = true; $("outCard").hidden = true; state.results = [];
+    var i = 0;
+    (function next(){
+      if (i >= CHECKS.length){
+        state.running = -1; renderList();
+        $("out").value = report(); $("outCard").hidden = false; $("go").disabled = false;
+        $("go").textContent = "Проверить ещё раз";
+        return;
+      }
+      state.running = i; renderList();
+      CHECKS[i].run().then(function(r){ state.results[i] = r; i++; next(); });
+    })();
+  });
+
+  $("copy").addEventListener("click", function(){
+    var ta = $("out");
+    var done = function(){ $("copy").textContent = "Скопировано ✓"; setTimeout(function(){ $("copy").textContent = "Скопировать результат"; }, 2500); };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(ta.value).then(done, function(){ ta.select(); });
+    } else { ta.select(); try { document.execCommand("copy"); done(); } catch(e){} }
+  });
+
+  pick("opChips", "op"); pick("whereChips", "where");
+  renderList();
+})();
+</script>
+</body>
+</html>
